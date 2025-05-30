@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Property Valuation App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>UK Property Valuation App</h1>
+            <p>Enter a UK address to generate a detailed property valuation report</p>
+        </header>
+
+        <main>
+            <section class="address-input-section">
+                <div class="card">
+                    <h2>Property Address</h2>
+                    <form id="address-form">
+                        <div class="form-group">
+                            <label for="address">Enter UK Address:</label>
+                            <textarea id="address" name="address" rows="3" placeholder="e.g., 10 Downing Street, London, SW1A 2AA" required></textarea>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Generate Report</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <section class="loading-section" style="display: none;">
+                <div class="card">
+                    <h2>Generating Report</h2>
+                    <div class="loading-container">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-status">
+                            <p id="current-status">Validating address...</p>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="agent-status">
+                        <div class="agent-card">
+                            <h3>Research Agent</h3>
+                            <p>Status: <span id="research-status">Waiting</span></p>
+                        </div>
+                        <div class="agent-card">
+                            <h3>Evaluation Agent</h3>
+                            <p>Status: <span id="evaluation-status">Waiting</span></p>
+                        </div>
+                        <div class="agent-card">
+                            <h3>Accessor Agent</h3>
+                            <p>Status: <span id="accessor-status">Waiting</span></p>
+                        </div>
+                        <div class="agent-card">
+                            <h3>Report Generator</h3>
+                            <p>Status: <span id="generator-status">Waiting</span></p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="report-section" style="display: none;">
+                <div class="report-actions">
+                    <button id="export-pdf" class="btn btn-secondary">Export as PDF</button>
+                    <button id="new-report" class="btn btn-outline">New Report</button>
+                </div>
+                <div class="report-container" id="report-content">
+                    <!-- Report content will be inserted here -->
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>&copy; 2025 UK Property Valuation App | Powered by Agentic AI</p>
+        </footer>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const addressForm = document.getElementById('address-form');
+            
+            if (addressForm) {
+                addressForm.addEventListener('submit', function(e) {
+                    e.preventDefault(); // Prevent the default form submission
+                    
+                    const addressInput = document.getElementById('address-input');
+                    const address = addressInput.value.trim();
+                    
+                    if (!address) {
+                        alert('Please enter a UK address');
+                        return;
+                    }
+                    
+                    // Show progress section
+                    const progressSection = document.getElementById('progress-section');
+                    if (progressSection) {
+                        progressSection.style.display = 'block';
+                    }
+                    
+                    // Disable form
+                    addressInput.disabled = true;
+                    const generateBtn = document.getElementById('generate-btn');
+                    if (generateBtn) {
+                        generateBtn.disabled = true;
+                    }
+                    
+                    // First validate the address
+                    fetch('/validate-address', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ address: address })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.valid) {
+                            // Then generate the report
+                            return fetch('/generate-report', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ address: data.formatted_address || address })
+                            });
+                        } else {
+                            throw new Error(data.message || 'Invalid address');
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success && data.report_id) {
+                            // Start polling for status
+                            pollReportStatus(data.report_id);
+                        } else {
+                            alert(data.message || 'Failed to start report generation');
+                            resetForm();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error: ' + error.message);
+                        resetForm();
+                    });
+                });
+            }
+            
+            function pollReportStatus(reportId) {
+                const statusUrl = `/report-status/${reportId}`;
+                const progressBar = document.getElementById('progress-bar');
+                const progressMessage = document.getElementById('progress-message');
+                
+                function checkStatus() {
+                    fetch(statusUrl)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                // Update progress
+                                if (progressBar) {
+                                    progressBar.style.width = `${data.progress}%`;
+                                    progressBar.setAttribute('aria-valuenow', data.progress);
+                                }
+                                if (progressMessage) {
+                                    progressMessage.textContent = data.message || '';
+                                }
+                                
+                                if (data.complete) {
+                                    // Report is complete, redirect to view
+                                    window.location.href = `/view-report/${reportId}`;
+                                } else if (data.status === 'error') {
+                                    // Show error
+                                    alert(data.message || 'An error occurred during report generation');
+                                    resetForm();
+                                } else {
+                                    // Continue polling
+                                    setTimeout(checkStatus, 2000);
+                                }
+                            } else {
+                                alert(data.message || 'Failed to check report status');
+                                resetForm();
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error checking report status:', error);
+                            alert('Error checking report status');
+                            resetForm();
+                        });
+                }
+                
+                // Start checking status
+                checkStatus();
+            }
+            
+            function resetForm() {
+                const addressInput = document.getElementById('address-input');
+                const generateBtn = document.getElementById('generate-btn');
+                
+                if (addressInput) {
+                    addressInput.disabled = false;
+                }
+                if (generateBtn) {
+                    generateBtn.disabled = false;
+                }
+            }
+        });
+        </script>        
+</body>
+</html>
